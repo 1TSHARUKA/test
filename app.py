@@ -1,102 +1,73 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+import altair as alt
 from sklearn.linear_model import LogisticRegression
-
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
 import os
-os.system("pip install notebook")
 
-# Load and clean the dataset
-data = pd.read_csv('social_media_usage.csv')
-data_filtered = data[['income', 'educ2', 'web1h', 'par', 'marital', 'age']]
-data_filtered = data_filtered[
-    (data_filtered['income'] <= 9) &
-    (data_filtered['educ2'] <= 8) &
-    (data_filtered['web1h'] <= 2) &
-    (data_filtered['par'] <= 2) &
-    (data_filtered['marital'] <= 6) &
-    (data_filtered['age'] <= 98)
-].dropna()
+# Add debugging lines to help understand file loading
+st.write("Current working directory:", os.getcwd())
+st.write("Files in current directory:", os.listdir())
 
-# Rename target column
-data_filtered.rename(columns={'web1h': 'sm_li'}, inplace=True)
+# Try reading the file with error handling
+try:
+    s = pd.read_csv("social_media_usage.csv")
+    st.write("File loaded successfully!")
+except Exception as e:
+    st.error(f"Error loading file: {str(e)}")
 
-# Define features (X) and target (y)
-X = data_filtered[['income', 'educ2', 'par', 'marital', 'age']]
-y = data_filtered['sm_li']
+# Define function clean_sm that takes one input x and uses np.where to return 0 or 1
+def clean_sm(x):
+    return np.where(x == 1, 1, 0)
 
-# Split data into training and testing sets
+# Select and prepare the data
+columns_ss = ["income", "educ2", "par", "marital", "age", "gender", "web1h"]
+ss = s.loc[:, columns_ss]
+
+# Create the final dataframe with cleaned data
+ss = pd.DataFrame({
+    "income": np.where(ss["income"] > 10, np.nan, ss["income"]),
+    "educ2": np.where(ss["educ2"] > 9,  np.nan, ss["educ2"]),
+    "par": np.where(ss["par"] == 1, 1, 0),  # Parent binary
+    "marital": np.where(ss["marital"] == 1, 1, 0),  # Marital binary
+    "gender": np.where(ss["gender"] == 2, 1, 0),  # gender binary
+    "age": np.where(ss["age"] > 98, np.nan, ss["age"]),
+    "sm_li": clean_sm(ss["web1h"])
+})
+
+# Drop rows with missing values
+ss = ss.dropna()
+
+# Display the cleaned DataFrame in Streamlit
+st.write("Cleaned DataFrame SS:")
+st.write(ss.head())
+
+# Create target vector and feature set
+y = ss["sm_li"]
+X = ss[["income", "educ2", "par", "marital", "gender", "age"]]
+
+# Display shapes in Streamlit
+st.write("Shape of Feature Set (X):", X.shape)
+st.write("Shape of Target Vector (y):", y.shape)
+
+# Split the data
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, stratify=y, test_size=0.2, random_state=987
+    X,
+    y,
+    stratify=y,
+    test_size=0.2,
+    random_state=487
 )
 
-# Train logistic regression model
-model = LogisticRegression(class_weight='balanced', random_state=987)
-model.fit(X_train, y_train)
+# Initialize and train the model
+lr = LogisticRegression(class_weight="balanced", random_state=487)
+lr.fit(X_train, y_train)
 
-# Streamlit app for predictions
-st.title("LinkedIn User Prediction App")
+# Evaluate the model
+accuracy = lr.score(X_test, y_test)
+st.write(f"Model Accuracy: {accuracy:.2f}")
 
-st.write("### Data Definitions")
-st.write("""
-- **Age**: Between 1 and 97  
-- **Education**:  
-  1: Less than high school  
-  2: High school incomplete  
-  3: High school graduate  
-  4: Some college, no degree  
-  5: Two-year associate degree  
-  6: Four-year college graduate  
-  7: Some postgraduate or professional schooling  
-  8: Postgraduate or professional degree  
-
-- **Parent**:  
-  1: Yes  
-  2: No  
-
-- **Marital Status**:  
-  1: Married  
-  2: Living with a partner  
-  3: Divorced  
-  4: Separated  
-  5: Widowed  
-  6: Never been married  
-
-- **Income**: 1 (lowest income) to 9 (highest income)
-""")
-
-# Input fields for user data
-income = st.slider("Income (1-9)", 1, 9, step=1)
-education = st.slider("Education Level (1-8)", 1, 8, step=1)
-parent = st.selectbox("Parent (1: Yes, 2: No)", [1, 2])
-marital = st.selectbox(
-    "Marital Status",
-    [1, 2, 3, 4, 5, 6],
-    format_func=lambda x: [
-        "Married", "Living with a partner", "Divorced",
-        "Separated", "Widowed", "Never been married"
-    ][x - 1]
-)
-age = st.number_input("Age (1-97)", min_value=1, max_value=97, step=1)
-
-if st.button("Predict"):
-    # Prepare input for prediction
-    user_input = np.array([[income, education, parent, marital, age]])
-    
-    # Make predictions
-    prediction = model.predict(user_input)
-    prob = model.predict_proba(user_input)[:, 1]  # Probability for LinkedIn user
-    
-    # Display results
-    if prediction[0] == 1:
-        st.success(f"This individual is likely a LinkedIn user. Probability: {prob[0]:.2f}")
-    else:
-        st.warning(f"This individual is unlikely to be a LinkedIn user. Probability: {prob[0]:.2f}")
-
-
-# In[ ]:
-
-
-
-
+# Make predictions
+y_pred = lr.predict(X_test)
